@@ -20,6 +20,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
@@ -556,29 +558,62 @@ private fun TopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onFinish) {
-            Text(
-                text = "←",
-                color = Color.White,
-                fontSize = 31.sp,
-                fontWeight = FontWeight.Medium,
+        // Hand-drawn style back button
+        IconButton(
+            onClick = onFinish,
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White.copy(alpha = 0.15f))
+                .border(
+                    width = 1.5.dp,
+                    color = Color.White.copy(alpha = 0.25f),
+                    shape = RoundedCornerShape(12.dp),
+                ),
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_back_hand_drawn),
+                contentDescription = "返回",
+                modifier = Modifier.size(24.dp),
             )
         }
-        Row {
-            TextButton(onClick = onShowHistory) {
-                Text(
-                    text = "历史",
-                    color = Color.White,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Medium,
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Hand-drawn history button
+            IconButton(
+                onClick = onShowHistory,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.15f))
+                    .border(
+                        width = 1.5.dp,
+                        color = Color(0xFF4CAF50).copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(12.dp),
+                    ),
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_history_hand_drawn),
+                    contentDescription = "历史",
+                    modifier = Modifier.size(24.dp),
                 )
             }
-            TextButton(onClick = onPickImage) {
-                Text(
-                    text = "相册",
-                    color = Color.White,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Medium,
+            // Hand-drawn gallery button
+            IconButton(
+                onClick = onPickImage,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.15f))
+                    .border(
+                        width = 1.5.dp,
+                        color = Color(0xFFFFD93D).copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(12.dp),
+                    ),
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_gallery_hand_drawn),
+                    contentDescription = "相册",
+                    modifier = Modifier.size(24.dp),
                 )
             }
         }
@@ -631,32 +666,41 @@ private fun ScanFrame() {
         contentAlignment = Alignment.TopCenter,
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val stroke = 4.dp.toPx()
-            val corner = 34.dp.toPx()
+            val stroke = 4.5.dp.toPx()
+            val corner = 38.dp.toPx()
             val width = size.width
             val height = size.height
-            val blue = Color(0xFF79AAFF)
+            val terracotta = Color(0xFFC4612F)
+            val green = Color(0xFF4CAF50)
 
+            // Hand-drawn background with slight irregularity
             drawRoundRect(
-                color = Color.White.copy(alpha = 0.08f),
+                color = Color.White.copy(alpha = 0.06f),
                 size = Size(width, height),
-                style = Stroke(width = 1.dp.toPx()),
+                style = Stroke(width = 1.5.dp.toPx()),
             )
-            drawLine(blue, Offset(0f, 0f), Offset(corner, 0f), stroke, StrokeCap.Round)
-            drawLine(blue, Offset(0f, 0f), Offset(0f, corner), stroke, StrokeCap.Round)
-            drawLine(blue, Offset(width, 0f), Offset(width - corner, 0f), stroke, StrokeCap.Round)
-            drawLine(blue, Offset(width, 0f), Offset(width, corner), stroke, StrokeCap.Round)
-            drawLine(blue, Offset(0f, height), Offset(corner, height), stroke, StrokeCap.Round)
-            drawLine(blue, Offset(0f, height), Offset(0f, height - corner), stroke, StrokeCap.Round)
-            drawLine(blue, Offset(width, height), Offset(width - corner, height), stroke, StrokeCap.Round)
-            drawLine(blue, Offset(width, height), Offset(width, height - corner), stroke, StrokeCap.Round)
+            
+            // Hand-drawn corners with terracotta color
+            // Top-left
+            drawLine(terracotta, Offset(0f, 0f), Offset(corner + 2.dp.toPx(), 0f), stroke, StrokeCap.Round)
+            drawLine(terracotta, Offset(0f, 0f), Offset(0f, corner + 2.dp.toPx()), stroke, StrokeCap.Round)
+            // Top-right
+            drawLine(terracotta, Offset(width, 0f), Offset(width - corner - 2.dp.toPx(), 0f), stroke, StrokeCap.Round)
+            drawLine(terracotta, Offset(width, 0f), Offset(width, corner + 2.dp.toPx()), stroke, StrokeCap.Round)
+            // Bottom-left
+            drawLine(terracotta, Offset(0f, height), Offset(corner + 2.dp.toPx(), height), stroke, StrokeCap.Round)
+            drawLine(terracotta, Offset(0f, height), Offset(0f, height - corner - 2.dp.toPx()), stroke, StrokeCap.Round)
+            // Bottom-right
+            drawLine(terracotta, Offset(width, height), Offset(width - corner - 2.dp.toPx(), height), stroke, StrokeCap.Round)
+            drawLine(terracotta, Offset(width, height), Offset(width, height - corner - 2.dp.toPx()), stroke, StrokeCap.Round)
 
+            // Green scanning line
             val y = 16.dp.toPx() + progress * (height - 32.dp.toPx())
             drawLine(
-                color = Color(0xFF82B4FF).copy(alpha = 0.95f),
+                color = green,
                 start = Offset(10.dp.toPx(), y),
                 end = Offset(width - 10.dp.toPx(), y),
-                strokeWidth = 2.dp.toPx(),
+                strokeWidth = 2.5.dp.toPx(),
                 cap = StrokeCap.Round,
             )
         }
@@ -668,8 +712,8 @@ private fun ScanFrame() {
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFF79AAFF).copy(alpha = 0.18f),
-                            Color(0xFF79AAFF).copy(alpha = 0.04f),
+                            Color(0xFF4CAF50).copy(alpha = 0.22f),
+                            Color(0xFF4CAF50).copy(alpha = 0.08f),
                             Color.Transparent,
                         ),
                     ),
@@ -705,26 +749,35 @@ private fun TorchControl(
             onClick = onToggle,
             enabled = available,
             modifier = Modifier
-                .size(72.dp)
+                .size(80.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = if (enabled) 0.32f else 0.18f))
+                .background(
+                    if (enabled) 
+                        Color(0xFFFFD93D).copy(alpha = 0.25f) 
+                    else 
+                        Color.White.copy(alpha = 0.15f)
+                )
                 .border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.20f),
+                    width = 2.5.dp,
+                    color = if (enabled) 
+                        Color(0xFFFFD93D).copy(alpha = 0.6f) 
+                    else 
+                        Color.White.copy(alpha = 0.25f),
                     shape = CircleShape,
                 ),
         ) {
-            Text(
-                text = if (enabled) "💡" else "🔆",
-                color = if (available) Color.White else Color.White.copy(alpha = 0.42f),
-                fontSize = 28.sp,
+            Image(
+                painter = painterResource(id = R.drawable.ic_flashlight_hand_drawn),
+                contentDescription = if (enabled) "关闭手电筒" else "打开手电筒",
+                modifier = Modifier.size(36.dp),
+                alpha = if (available) 1f else 0.42f,
             )
         }
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = if (enabled) "轻触关闭" else "轻触照亮",
             color = Color.White,
-            fontSize = 18.sp,
+            fontSize = 16.sp,
             fontWeight = FontWeight.Medium,
         )
     }
@@ -779,29 +832,47 @@ private fun BoxScope.ResultPanel(
                     indication = null,
                     onClick = {},
                 ),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.98f)),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F4EF)),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         ) {
         Column(modifier = Modifier.padding(22.dp)) {
-            Text(
-                text = "识别结果",
-                color = Color(0xFF151820),
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(modifier = Modifier.height(10.dp))
+            // Hand-drawn style title with accent
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "识别结果",
+                    color = Color(0xFF1F2421),
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color(0xFFF2E3D6))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "✓",
+                        color = Color(0xFFC4612F),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = result,
-                color = Color(0xFF3F4658),
+                color = Color(0xFF1F2421),
                 fontSize = 15.sp,
-                lineHeight = 21.sp,
+                lineHeight = 22.sp,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFFF2F5FA))
+                    .background(Color.White)
+                    .border(1.dp, Color(0xFFE7E1D7), RoundedCornerShape(16.dp))
                     .padding(14.dp),
             )
             Spacer(modifier = Modifier.height(18.dp))
@@ -811,12 +882,12 @@ private fun BoxScope.ResultPanel(
                     modifier = Modifier
                         .weight(1f)
                         .height(50.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF2F7DFF),
+                        containerColor = Color(0xFFC4612F),
                         contentColor = Color.White,
                     ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
                 ) {
                     Text(
                         text = "复制",
@@ -831,20 +902,20 @@ private fun BoxScope.ResultPanel(
                     modifier = Modifier
                         .weight(1f)
                         .height(50.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF00A67E),
+                        containerColor = Color(0xFF4CAF50),
                         contentColor = Color.White,
-                        disabledContainerColor = Color(0xFFD5DBE6),
-                        disabledContentColor = Color(0xFF8A93A6),
+                        disabledContainerColor = Color(0xFFE7E1D7),
+                        disabledContentColor = Color(0xFF5C635D),
                     ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
                 ) {
                     Text(
                         text = "访问",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (canOpen) Color.White else Color(0xFF8A93A6),
+                        color = if (canOpen) Color.White else Color(0xFF5C635D),
                     )
                 }
             }
@@ -856,7 +927,7 @@ private fun BoxScope.ResultPanel(
             ) {
                 Text(
                     text = "继续扫描",
-                    color = Color(0xFF2F7DFF),
+                    color = Color(0xFF1F2421),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                 )

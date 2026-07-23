@@ -4,14 +4,126 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Center barcode / scan frame -->
+    
+    <!-- Hand-drawn scan frame corners with irregular lines -->
+    <!-- Top-left corner -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M34,34h10v4H38v6h-4zM64,34h10v4h-6v6h-4zM34,64h4v6h6v4H34zM74,64v10h-10v-4h6v-6z" />
+        android:strokeColor="#C4612F"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M32,38 Q32.5,36 33,34 L42,34 Q43,34.2 44,34.5" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M42,50h4v8h-4zM50,48h4v12h-4zM58,50h4v8h-4zM66,49h4v10h-4z" />
+        android:strokeColor="#C4612F"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M32,38 L32,46 Q32.2,47 32.5,48" />
+    
+    <!-- Top-right corner -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M30,52h48v4H30z" />
+        android:strokeColor="#C4612F"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M64,34.5 Q65,34.2 66,34 L74,34 Q75.5,34.5 76,36 L76,38" />
+    <path
+        android:strokeColor="#C4612F"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M76,46 Q75.8,47 75.5,48 L76,48" />
+    
+    <!-- Bottom-left corner -->
+    <path
+        android:strokeColor="#C4612F"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M32,60 Q32.2,61 32.5,62 L32,70" />
+    <path
+        android:strokeColor="#C4612F"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M32,70 Q32.5,71.5 34,72 L34,72 Q35,72 42,72 Q43,71.8 44,71.5" />
+    
+    <!-- Bottom-right corner -->
+    <path
+        android:strokeColor="#C4612F"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M76,60 L76,62 Q75.8,63 75.5,64 L76,70" />
+    <path
+        android:strokeColor="#C4612F"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M76,70 Q75.5,71.5 74,72 L66,72 Q65,71.8 64,71.5" />
+    
+    <!-- Hand-drawn barcode lines with slight irregularity -->
+    <path
+        android:strokeColor="#1F2421"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:pathData="M40,48 L40,58.5" />
+    <path
+        android:strokeColor="#1F2421"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M46,47 L46,59" />
+    <path
+        android:strokeColor="#1F2421"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:pathData="M51,48.5 L51,58" />
+    <path
+        android:strokeColor="#1F2421"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M57,47.5 L57,58.5" />
+    <path
+        android:strokeColor="#1F2421"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:pathData="M62,48 L62,58" />
+    <path
+        android:strokeColor="#1F2421"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M68,47.5 L68,59" />
+    
+    <!-- Scanning line with hand-drawn effect - now green -->
+    <path
+        android:strokeColor="#4CAF50"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M36,53 Q44,52.8 54,53 Q64,53.2 72,53" />
+    
+    <!-- Green glow effect around scan line -->
+    <path
+        android:strokeColor="#81C784"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.5"
+        android:pathData="M36,53 Q44,52.8 54,53 Q64,53.2 72,53" />
+    
+    <!-- Small accent dots with green variation -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M54,42 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0" />
+    <path
+        android:fillColor="#66BB6A"
+        android:pathData="M54,64 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0" />
+    
+    <!-- Hand-drawn leaf accent in corner -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M70,40 Q72,38 74,39 Q75,40 74.5,42 Q73,43 71,42 Q69.5,41 70,40z" />
+    <path
+        android:strokeColor="#388E3C"
+        android:strokeWidth="0.8"
+        android:strokeLineCap="round"
+        android:pathData="M72,40 Q72,41 72,42" />
 </vector>

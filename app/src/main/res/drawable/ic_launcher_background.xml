@@ -4,7 +4,22 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Hand-drawn style background with warm gradient -->
     <path
-        android:fillColor="#1565C0"
+        android:fillColor="#F7F4EF"
         android:pathData="M0,0h108v108h-108z" />
+    
+    <!-- Subtle texture overlay circles -->
+    <path
+        android:fillColor="#FBF9F5"
+        android:fillAlpha="0.6"
+        android:pathData="M20,25 Q22,20 28,22 Q32,24 30,30 Q28,35 22,33 Q18,30 20,25z" />
+    <path
+        android:fillColor="#FBF9F5"
+        android:fillAlpha="0.5"
+        android:pathData="M75,15 Q80,12 85,16 Q88,20 84,25 Q80,28 75,24 Q72,20 75,15z" />
+    <path
+        android:fillColor="#FBF9F5"
+        android:fillAlpha="0.4"
+        android:pathData="M85,75 Q88,70 93,73 Q96,77 93,82 Q90,85 85,82 Q82,78 85,75z" />
 </vector>
