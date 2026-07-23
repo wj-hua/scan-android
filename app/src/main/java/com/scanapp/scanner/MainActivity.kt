@@ -1,6 +1,7 @@
 package com.scanapp.scanner
 
 import android.Manifest
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -17,8 +18,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -70,7 +74,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -82,6 +88,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,6 +104,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.common.InputImage
+import com.scanapp.scanner.data.ScanSource
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.concurrent.Executors
@@ -119,12 +128,32 @@ fun ScanApp(onFinish: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val barcodeScanner = rememberBarcodeScanner()
+    val historyViewModel: ScanHistoryViewModel = viewModel(
+        factory = ScanHistoryViewModel.factory(context.applicationContext),
+    )
+    val history by historyViewModel.history.collectAsStateWithLifecycle()
     var hasCameraPermission by remember { mutableStateOf(context.hasCameraPermission()) }
     var scanResult by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var torchEnabled by remember { mutableStateOf(false) }
     var hasFlash by remember { mutableStateOf(false) }
     var isPickingImage by remember { mutableStateOf(false) }
+    var isShowingHistory by rememberSaveable { mutableStateOf(false) }
+    val isCameraResultAccepted = remember { AtomicBoolean(false) }
+    var lastBackPressTime by remember { mutableStateOf(0L) }
+
+    SideEffect {
+        val window = (context as Activity).window
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = isShowingHistory
+    }
+
+    fun acceptScan(text: String, source: ScanSource, successNotice: String) {
+        if (source == ScanSource.CAMERA && !isCameraResultAccepted.compareAndSet(false, true)) return
+        torchEnabled = false
+        scanResult = text
+        notice = successNotice
+        historyViewModel.recordScan(text, source)
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -145,14 +174,32 @@ fun ScanApp(onFinish: () -> Unit) {
             if (text.isNullOrBlank()) {
                 notice = "图片中未识别到二维码或条码"
             } else {
-                torchEnabled = false
-                scanResult = text
-                notice = "已从相册识别"
+                acceptScan(text, ScanSource.GALLERY, "已从相册识别")
             }
         }
     }
 
-    BackHandler(onBack = onFinish)
+    BackHandler {
+        when {
+            scanResult != null -> {
+                isCameraResultAccepted.set(false)
+                scanResult = null
+                notice = null
+            }
+            isShowingHistory -> {
+                isShowingHistory = false
+            }
+            else -> {
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastBackPressTime < 2000) {
+                    onFinish()
+                } else {
+                    lastBackPressTime = currentTime
+                    Toast.makeText(context, "再按一次退出应用", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     DisposableEffect(barcodeScanner) {
         onDispose { barcodeScanner.close() }
@@ -166,89 +213,101 @@ fun ScanApp(onFinish: () -> Unit) {
 
     MaterialTheme(colorScheme = scannerColorScheme) {
         Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (hasCameraPermission) {
-                    CameraScannerPreview(
-                        scanner = barcodeScanner,
-                        isActive = scanResult == null,
-                        torchEnabled = torchEnabled,
-                        onTorchAvailabilityChanged = { hasFlash = it },
-                        onTorchChanged = { torchEnabled = it },
-                        onBarcodeFound = { text ->
-                            if (scanResult == null) {
-                                scanResult = text
-                                notice = "扫码成功"
-                                torchEnabled = false
-                            }
-                        },
-                        onCameraError = { notice = it },
-                    )
-                } else {
-                    CameraPermissionBackdrop()
-                }
-
-                ScannerOverlay()
-
-                TopBar(
-                    onFinish = onFinish,
-                    onPickImage = {
-                        galleryLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
-                    },
+            if (isShowingHistory) {
+                HistoryScreen(
+                    items = history,
+                    onBack = { isShowingHistory = false },
+                    onCopy = context::copyToClipboard,
+                    onOpenBrowser = context::openInBrowser,
                 )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(WindowInsets.statusBars.asPaddingValues())
-                        .padding(top = 72.dp)
-                        .padding(WindowInsets.navigationBars.asPaddingValues())
-                        .padding(bottom = 36.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    ScanHeader()
-
-                    if (notice != null) {
-                        Spacer(modifier = Modifier.height(14.dp))
-                        NoticeText(text = notice.orEmpty())
+            } else {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (hasCameraPermission) {
+                        CameraScannerPreview(
+                            scanner = barcodeScanner,
+                            isActive = scanResult == null,
+                            torchEnabled = torchEnabled,
+                            onTorchAvailabilityChanged = { hasFlash = it },
+                            onTorchChanged = { torchEnabled = it },
+                            onBarcodeFound = { text ->
+                                if (scanResult == null) {
+                                    acceptScan(text, ScanSource.CAMERA, "扫码成功")
+                                }
+                            },
+                            onCameraError = { notice = it },
+                        )
+                    } else {
+                        CameraPermissionBackdrop()
                     }
 
-                    Spacer(modifier = Modifier.weight(1f))
+                    ScannerOverlay()
 
-                    ScanFrame()
-
-                    Spacer(modifier = Modifier.height(28.dp))
-
-                    TorchControl(
-                        enabled = torchEnabled,
-                        available = hasFlash && hasCameraPermission && scanResult == null,
-                        onToggle = {
-                            if (hasFlash && hasCameraPermission && scanResult == null) {
-                                torchEnabled = !torchEnabled
-                            } else {
-                                notice = "当前设备或状态不支持打开手电筒"
-                            }
+                    TopBar(
+                        onFinish = onFinish,
+                        onShowHistory = {
+                            torchEnabled = false
+                            isShowingHistory = true
+                        },
+                        onPickImage = {
+                            galleryLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                            )
                         },
                     )
 
-                    Spacer(modifier = Modifier.weight(0.45f))
-                }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(WindowInsets.statusBars.asPaddingValues())
+                            .padding(top = 72.dp)
+                            .padding(WindowInsets.navigationBars.asPaddingValues())
+                            .padding(bottom = 36.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        ScanHeader()
 
-                if (isPickingImage) {
-                    LoadingHint()
-                }
+                        if (notice != null) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            NoticeText(text = notice.orEmpty())
+                        }
 
-                scanResult?.let { result ->
-                    ResultPanel(
-                        result = result,
-                        onCopy = { context.copyToClipboard(result) },
-                        onOpenBrowser = { context.openInBrowser(result) },
-                        onScanAgain = {
-                            scanResult = null
-                            notice = null
-                        },
-                    )
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        ScanFrame()
+
+                        Spacer(modifier = Modifier.height(28.dp))
+
+                        TorchControl(
+                            enabled = torchEnabled,
+                            available = hasFlash && hasCameraPermission && scanResult == null,
+                            onToggle = {
+                                if (hasFlash && hasCameraPermission && scanResult == null) {
+                                    torchEnabled = !torchEnabled
+                                } else {
+                                    notice = "当前设备或状态不支持打开手电筒"
+                                }
+                            },
+                        )
+
+                        Spacer(modifier = Modifier.weight(0.45f))
+                    }
+
+                    if (isPickingImage) {
+                        LoadingHint()
+                    }
+
+                    scanResult?.let { result ->
+                        ResultPanel(
+                            result = result,
+                            onCopy = { context.copyToClipboard(result) },
+                            onOpenBrowser = { context.openInBrowser(result) },
+                            onScanAgain = {
+                                isCameraResultAccepted.set(false)
+                                scanResult = null
+                                notice = null
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -309,13 +368,15 @@ private fun CameraScannerPreview(
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         var provider: ProcessCameraProvider? = null
         var observer: Observer<Int>? = null
+        var observedCamera: Camera? = null
+        val disposed = AtomicBoolean(false)
 
         val listener = Runnable {
             try {
                 provider = cameraProviderFuture.get()
                 provider?.unbindAll()
 
-                if (!isActive) {
+                if (disposed.get() || !isActive) {
                     camera = null
                     return@Runnable
                 }
@@ -344,6 +405,7 @@ private fun CameraScannerPreview(
                     analysis,
                 )
                 camera = boundCamera
+                observedCamera = boundCamera
                 val hasFlash = boundCamera?.cameraInfo?.hasFlashUnit() == true
                 onTorchAvailabilityChanged(hasFlash)
                 observer = Observer { state -> onTorchChanged(state == TorchState.ON) }
@@ -358,7 +420,8 @@ private fun CameraScannerPreview(
         cameraProviderFuture.addListener(listener, ContextCompat.getMainExecutor(context))
 
         onDispose {
-            observer?.let { camera?.cameraInfo?.torchState?.removeObserver(it) }
+            disposed.set(true)
+            observer?.let { observedCamera?.cameraInfo?.torchState?.removeObserver(it) }
             provider?.unbindAll()
             processing.set(false)
             camera = null
@@ -372,8 +435,8 @@ private fun CameraScannerPreview(
     AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
 }
 
+@androidx.annotation.OptIn(markerClass = [ExperimentalGetImage::class])
 private fun analyzeBarcode(
-
     scanner: BarcodeScanner,
     imageProxy: ImageProxy,
     processing: AtomicBoolean,
@@ -480,7 +543,11 @@ private fun ScannerOverlay() {
 }
 
 @Composable
-private fun TopBar(onFinish: () -> Unit, onPickImage: () -> Unit) {
+private fun TopBar(
+    onFinish: () -> Unit,
+    onShowHistory: () -> Unit,
+    onPickImage: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -497,13 +564,23 @@ private fun TopBar(onFinish: () -> Unit, onPickImage: () -> Unit) {
                 fontWeight = FontWeight.Medium,
             )
         }
-        TextButton(onClick = onPickImage) {
-            Text(
-                text = "相册",
-                color = Color.White,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Medium,
-            )
+        Row {
+            TextButton(onClick = onShowHistory) {
+                Text(
+                    text = "历史",
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            TextButton(onClick = onPickImage) {
+                Text(
+                    text = "相册",
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
         }
     }
 }
@@ -682,16 +759,30 @@ private fun BoxScope.ResultPanel(
 ) {
     val canOpen = result.normalizedWebUrl() != null
 
-    Card(
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 18.dp)
-            .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 18.dp)
-            .align(Alignment.BottomCenter),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.98f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            .fillMaxSize()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onScanAgain,
+            ),
+        contentAlignment = Alignment.BottomCenter,
     ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp)
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 18.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                ),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.98f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        ) {
         Column(modifier = Modifier.padding(22.dp)) {
             Text(
                 text = "识别结果",
@@ -772,6 +863,7 @@ private fun BoxScope.ResultPanel(
             }
         }
     }
+    }
 }
 
 private val scannerColorScheme = darkColorScheme(
@@ -788,7 +880,7 @@ private fun Context.hasCameraPermission(): Boolean {
 private fun Context.copyToClipboard(text: String) {
     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("扫码结果", text))
-    Toast.makeText(this, "链接已复制", Toast.LENGTH_SHORT).show()
+    Toast.makeText(this, "内容已复制", Toast.LENGTH_SHORT).show()
 }
 
 private fun Context.openInBrowser(text: String) {
@@ -810,7 +902,7 @@ private fun Context.openInBrowser(text: String) {
     }
 }
 
-private fun String.normalizedWebUrl(): String? {
+internal fun String.normalizedWebUrl(): String? {
     val value = trim()
     if (value.isBlank()) return null
 
