@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -8,6 +11,13 @@ plugins {
 android {
     namespace = "com.scanapp.scanner"
     compileSdk = 35
+    
+    // 加载签名配置
+    val keystorePropertiesFile = rootProject.file("keystore.properties")
+    val keystoreProperties = Properties()
+    if (keystorePropertiesFile.exists()) {
+        keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+    }
 
     defaultConfig {
         applicationId = "com.scanapp.scanner"
@@ -16,10 +26,54 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        
+        // 启用向量图形支持
+        vectorDrawables.useSupportLibrary = true
+        
+        // 只包含arm64-v8a架构
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+    }
+    
+    // 签名配置
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // 启用代码压缩和混淆
+            isMinifyEnabled = true
+            // 启用资源缩减
+            isShrinkResources = true
+            // 使用签名配置
+            signingConfig = signingConfigs.getByName("release")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
     }
 
     buildFeatures {
         compose = true
+    }
+    
+    // 配置打包选项
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/LICENSE*"
+            excludes += "/META-INF/NOTICE*"
+        }
     }
 
     compileOptions {
