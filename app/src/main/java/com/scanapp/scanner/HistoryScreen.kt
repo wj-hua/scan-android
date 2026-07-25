@@ -2,9 +2,11 @@ package com.scanapp.scanner
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -20,28 +22,33 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.border
 import com.scanapp.scanner.data.ScanHistoryEntity
 import com.scanapp.scanner.data.ScanSource
+import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -51,30 +58,56 @@ fun HistoryScreen(
     items: List<ScanHistoryEntity>,
     onBack: () -> Unit,
     onCopy: (String) -> Unit,
+    onShare: (String) -> Unit,
     onOpenBrowser: (String) -> Unit,
+    onDelete: (Long) -> Unit,
+    onClear: () -> Unit,
 ) {
     val systemUiController = rememberSystemUiController()
-    
+    var query by rememberSaveable { mutableStateOf("") }
+    var itemPendingDelete by rememberSaveable { mutableStateOf<Long?>(null) }
+    var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
+    val filteredItems = if (query.isBlank()) {
+        items
+    } else {
+        items.filter { it.content.contains(query.trim(), ignoreCase = true) }
+    }
+
     SideEffect {
         systemUiController.setStatusBarColor(
             color = Color(0xFFF7F4EF),
-            darkIcons = true
+            darkIcons = true,
         )
     }
-    
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF7F4EF))
             .padding(WindowInsets.statusBars.asPaddingValues()),
     ) {
-        HistoryTopBar(onBack = onBack)
-        if (items.isEmpty()) {
-            EmptyHistory(modifier = Modifier.weight(1f))
-        } else {
-            LazyColumn(
+        HistoryTopBar(
+            hasItems = items.isNotEmpty(),
+            onBack = onBack,
+            onClear = { showClearConfirmation = true },
+        )
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 4.dp),
+            singleLine = true,
+            label = { Text("搜索历史记录") },
+            placeholder = { Text("输入内容或域名") },
+            shape = RoundedCornerShape(16.dp),
+        )
+        when {
+            items.isEmpty() -> EmptyHistory(modifier = Modifier.weight(1f))
+            filteredItems.isEmpty() -> EmptySearch(modifier = Modifier.weight(1f))
+            else -> LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                contentPadding = PaddingValues(
                     start = 18.dp,
                     end = 18.dp,
                     top = 8.dp,
@@ -82,20 +115,60 @@ fun HistoryScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(items, key = { it.id }) { item ->
+                items(filteredItems, key = { it.id }) { item ->
                     HistoryItem(
                         item = item,
                         onCopy = { onCopy(item.content) },
+                        onShare = { onShare(item.content) },
                         onOpenBrowser = { onOpenBrowser(item.content) },
+                        onDelete = { itemPendingDelete = item.id },
                     )
                 }
             }
         }
     }
+
+    itemPendingDelete?.let { id ->
+        AlertDialog(
+            onDismissRequest = { itemPendingDelete = null },
+            title = { Text("删除这条记录？") },
+            text = { Text("删除后无法恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete(id)
+                    itemPendingDelete = null
+                }) { Text("删除", color = Color(0xFFB3261E)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { itemPendingDelete = null }) { Text("取消") }
+            },
+        )
+    }
+
+    if (showClearConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmation = false },
+            title = { Text("清空全部历史记录？") },
+            text = { Text("所有扫描记录都会被永久删除。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onClear()
+                    showClearConfirmation = false
+                }) { Text("全部清空", color = Color(0xFFB3261E)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirmation = false }) { Text("取消") }
+            },
+        )
+    }
 }
 
 @Composable
-private fun HistoryTopBar(onBack: () -> Unit) {
+private fun HistoryTopBar(
+    hasItems: Boolean,
+    onBack: () -> Unit,
+    onClear: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -108,11 +181,7 @@ private fun HistoryTopBar(onBack: () -> Unit) {
                 .size(48.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFFC4612F).copy(alpha = 0.1f))
-                .border(
-                    width = 1.5.dp,
-                    color = Color(0xFFC4612F).copy(alpha = 0.25f),
-                    shape = RoundedCornerShape(12.dp),
-                ),
+                .border(1.5.dp, Color(0xFFC4612F).copy(alpha = 0.25f), RoundedCornerShape(12.dp)),
         ) {
             Image(
                 painter = painterResource(id = R.drawable.ic_back_hand_drawn),
@@ -127,28 +196,33 @@ private fun HistoryTopBar(onBack: () -> Unit) {
             color = Color(0xFF1F2421),
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
         )
+        TextButton(onClick = onClear, enabled = hasItems) {
+            Text("清空", color = if (hasItems) Color(0xFFB3261E) else Color(0xFF9A9389))
+        }
     }
 }
 
 @Composable
 private fun EmptyHistory(modifier: Modifier = Modifier) {
+    EmptyMessage(modifier, "📋", "还没有扫描记录", "扫描二维码或从相册识别后会显示在这里")
+}
+
+@Composable
+private fun EmptySearch(modifier: Modifier = Modifier) {
+    EmptyMessage(modifier, "⌕", "没有找到匹配记录", "换个关键词试试")
+}
+
+@Composable
+private fun EmptyMessage(modifier: Modifier, icon: String, title: String, detail: String) {
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = "📋", color = Color(0xFF5C635D), fontSize = 52.sp)
+            Text(text = icon, color = Color(0xFF5C635D), fontSize = 52.sp)
             Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "还没有扫描记录",
-                color = Color(0xFF1F2421),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Text(title, color = Color(0xFF1F2421), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "扫描二维码或从相册识别后会显示在这里",
-                color = Color(0xFF5C635D),
-                fontSize = 14.sp,
-            )
+            Text(detail, color = Color(0xFF5C635D), fontSize = 14.sp)
         }
     }
 }
@@ -157,9 +231,11 @@ private fun EmptyHistory(modifier: Modifier = Modifier) {
 private fun HistoryItem(
     item: ScanHistoryEntity,
     onCopy: () -> Unit,
+    onShare: () -> Unit,
     onOpenBrowser: () -> Unit,
+    onDelete: () -> Unit,
 ) {
-    val canOpen = item.content.normalizedWebUrl() != null
+    val domain = item.content.webDomain()
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -172,41 +248,20 @@ private fun HistoryItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Hand-drawn style badge
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
-                        .background(
-                            if (item.source == ScanSource.CAMERA) 
-                                Color(0xFFF2E3D6) 
-                            else 
-                                Color(0xFFE8F5E9)
-                        )
-                        .border(
-                            width = 1.dp,
-                            color = if (item.source == ScanSource.CAMERA) 
-                                Color(0xFFC4612F).copy(alpha = 0.3f) 
-                            else 
-                                Color(0xFF4CAF50).copy(alpha = 0.3f),
-                            shape = RoundedCornerShape(999.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .background(if (item.source == ScanSource.CAMERA) Color(0xFFF2E3D6) else Color(0xFFE8F5E9))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
                     Text(
                         text = item.source.displayName(),
-                        color = if (item.source == ScanSource.CAMERA) 
-                            Color(0xFFC4612F) 
-                        else 
-                            Color(0xFF4CAF50),
+                        color = if (item.source == ScanSource.CAMERA) Color(0xFFC4612F) else Color(0xFF4CAF50),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
-                Text(
-                    text = item.scannedAt.displayTime(),
-                    color = Color(0xFF5C635D),
-                    fontSize = 12.sp,
-                )
+                Text(item.scannedAt.displayTime(), color = Color(0xFF5C635D), fontSize = 12.sp)
             }
             Text(
                 text = item.content,
@@ -222,30 +277,36 @@ private fun HistoryItem(
                     .border(1.dp, Color(0xFFE7E1D7), RoundedCornerShape(14.dp))
                     .padding(13.dp),
             )
+            domain?.let {
+                Text(
+                    text = "链接域名：$it",
+                    color = Color(0xFF356B3A),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp),
+                    .padding(top = 8.dp),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onCopy) {
-                    Text(text = "复制", color = Color(0xFF1F2421), fontWeight = FontWeight.Medium)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(onClick = onDelete) { Text("删除", color = Color(0xFFB3261E)) }
+                TextButton(onClick = onCopy) { Text("复制", color = Color(0xFF1F2421)) }
+                TextButton(onClick = onShare) { Text("分享", color = Color(0xFF1F2421)) }
                 Button(
                     onClick = onOpenBrowser,
-                    enabled = canOpen,
+                    enabled = domain != null,
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF4CAF50),
-                        contentColor = Color.White,
                         disabledContainerColor = Color(0xFFE7E1D7),
                         disabledContentColor = Color(0xFF5C635D),
                     ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
                 ) {
-                    Text(text = "访问", fontWeight = FontWeight.SemiBold)
+                    Text(if (domain == null) "非网页链接" else "访问")
                 }
             }
         }
@@ -257,6 +318,5 @@ private fun ScanSource.displayName(): String = when (this) {
     ScanSource.GALLERY -> "相册识别"
 }
 
-private fun Long.displayTime(): String {
-    return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(this))
-}
+private fun Long.displayTime(): String =
+    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(this))

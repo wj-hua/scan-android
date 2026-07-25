@@ -1,7 +1,6 @@
 package com.scanapp.scanner
 
 import android.Manifest
-import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -10,10 +9,17 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.provider.Settings
 import android.util.Patterns
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
@@ -61,6 +67,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
@@ -69,6 +76,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -99,7 +107,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.core.view.WindowCompat
+import androidx.core.app.ActivityCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.Observer
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -115,9 +126,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
-        window.navigationBarColor = android.graphics.Color.WHITE
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(
+                android.graphics.Color.WHITE,
+                android.graphics.Color.DKGRAY,
+            ),
+        )
 
         setContent {
             ScanApp(onFinish = ::finish)
@@ -128,6 +143,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun ScanApp(onFinish: () -> Unit) {
     val context = LocalContext.current
+    val activity = context as ComponentActivity
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val barcodeScanner = rememberBarcodeScanner()
     val historyViewModel: ScanHistoryViewModel = viewModel(
@@ -141,12 +158,40 @@ fun ScanApp(onFinish: () -> Unit) {
     var hasFlash by remember { mutableStateOf(false) }
     var isPickingImage by remember { mutableStateOf(false) }
     var isShowingHistory by rememberSaveable { mutableStateOf(false) }
+    var pendingLink by remember { mutableStateOf<String?>(null) }
     val isCameraResultAccepted = remember { AtomicBoolean(false) }
     var lastBackPressTime by remember { mutableStateOf(0L) }
 
+    fun applySystemBarsStyle() {
+        val useDarkStatusBarIcons = isShowingHistory
+        activity.enableEdgeToEdge(
+            statusBarStyle = if (useDarkStatusBarIcons) {
+                SystemBarStyle.light(
+                    android.graphics.Color.rgb(247, 244, 239),
+                    android.graphics.Color.DKGRAY,
+                )
+            } else {
+                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            },
+            navigationBarStyle = SystemBarStyle.light(
+                android.graphics.Color.WHITE,
+                android.graphics.Color.DKGRAY,
+            ),
+        )
+        WindowInsetsControllerCompat(
+            activity.window,
+            activity.window.decorView,
+        ).isAppearanceLightStatusBars = useDarkStatusBarIcons
+        activity.window.decorView.post {
+            WindowInsetsControllerCompat(
+                activity.window,
+                activity.window.decorView,
+            ).isAppearanceLightStatusBars = useDarkStatusBarIcons
+        }
+    }
+
     SideEffect {
-        val window = (context as Activity).window
-        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = isShowingHistory
+        applySystemBarsStyle()
     }
 
     fun acceptScan(text: String, source: ScanSource, successNotice: String) {
@@ -154,6 +199,7 @@ fun ScanApp(onFinish: () -> Unit) {
         torchEnabled = false
         scanResult = text
         notice = successNotice
+        context.vibrateForScanSuccess()
         historyViewModel.recordScan(text, source)
     }
 
@@ -207,6 +253,17 @@ fun ScanApp(onFinish: () -> Unit) {
         onDispose { barcodeScanner.close() }
     }
 
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasCameraPermission = context.hasCameraPermission()
+                applySystemBarsStyle()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
@@ -216,12 +273,17 @@ fun ScanApp(onFinish: () -> Unit) {
     MaterialTheme(colorScheme = scannerColorScheme) {
         Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
             if (isShowingHistory) {
-                HistoryScreen(
-                    items = history,
-                    onBack = { isShowingHistory = false },
-                    onCopy = context::copyToClipboard,
-                    onOpenBrowser = context::openInBrowser,
-                )
+                MaterialTheme(colorScheme = historyColorScheme) {
+                    HistoryScreen(
+                        items = history,
+                        onBack = { isShowingHistory = false },
+                        onCopy = context::copyToClipboard,
+                        onShare = context::shareText,
+                        onOpenBrowser = { pendingLink = it },
+                        onDelete = historyViewModel::deleteScan,
+                        onClear = historyViewModel::clearHistory,
+                    )
+                }
             } else {
                 Box(modifier = Modifier.fillMaxSize()) {
                     if (hasCameraPermission) {
@@ -239,7 +301,19 @@ fun ScanApp(onFinish: () -> Unit) {
                             onCameraError = { notice = it },
                         )
                     } else {
-                        CameraPermissionBackdrop()
+                        CameraPermissionBackdrop(
+                            onRequestPermission = {
+                                if (ActivityCompat.shouldShowRequestPermissionRationale(
+                                        activity,
+                                        Manifest.permission.CAMERA,
+                                    )
+                                ) {
+                                    permissionLauncher.launch(Manifest.permission.CAMERA)
+                                } else {
+                                    context.openAppPermissionSettings()
+                                }
+                            },
+                        )
                     }
 
                     ScannerOverlay()
@@ -302,7 +376,8 @@ fun ScanApp(onFinish: () -> Unit) {
                         ResultPanel(
                             result = result,
                             onCopy = { context.copyToClipboard(result) },
-                            onOpenBrowser = { context.openInBrowser(result) },
+                            onShare = { context.shareText(result) },
+                            onOpenBrowser = { pendingLink = result },
                             onScanAgain = {
                                 isCameraResultAccepted.set(false)
                                 scanResult = null
@@ -310,6 +385,19 @@ fun ScanApp(onFinish: () -> Unit) {
                             },
                         )
                     }
+                }
+            }
+
+            pendingLink?.let { link ->
+                MaterialTheme(colorScheme = historyColorScheme) {
+                    LinkSafetyDialog(
+                        text = link,
+                        onDismiss = { pendingLink = null },
+                        onConfirm = {
+                            pendingLink = null
+                            context.openInBrowser(link)
+                        },
+                    )
                 }
             }
         }
@@ -487,7 +575,9 @@ private fun List<Barcode>.firstReadableText(): String? {
 }
 
 @Composable
-private fun CameraPermissionBackdrop() {
+private fun CameraPermissionBackdrop(
+    onRequestPermission: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -518,6 +608,14 @@ private fun CameraPermissionBackdrop() {
                 fontSize = 13.sp,
                 modifier = Modifier.padding(top = 6.dp),
             )
+            Spacer(modifier = Modifier.height(18.dp))
+            Button(
+                onClick = onRequestPermission,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC4612F)),
+                shape = RoundedCornerShape(999.dp),
+            ) {
+                Text("重新授权相机", color = Color.White)
+            }
         }
     }
 }
@@ -807,10 +905,11 @@ private fun LoadingHint() {
 private fun BoxScope.ResultPanel(
     result: String,
     onCopy: () -> Unit,
+    onShare: () -> Unit,
     onOpenBrowser: () -> Unit,
     onScanAgain: () -> Unit,
 ) {
-    val canOpen = result.normalizedWebUrl() != null
+    val domain = result.webDomain()
 
     Box(
         modifier = Modifier
@@ -875,8 +974,17 @@ private fun BoxScope.ResultPanel(
                     .border(1.dp, Color(0xFFE7E1D7), RoundedCornerShape(16.dp))
                     .padding(14.dp),
             )
+            domain?.let {
+                Text(
+                    text = "链接域名：$it",
+                    color = Color(0xFF356B3A),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             Spacer(modifier = Modifier.height(18.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = onCopy,
                     modifier = Modifier
@@ -897,8 +1005,21 @@ private fun BoxScope.ResultPanel(
                     )
                 }
                 Button(
+                    onClick = onShare,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(999.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFC4612F),
+                        contentColor = Color.White,
+                    ),
+                ) {
+                    Text("分享", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Button(
                     onClick = onOpenBrowser,
-                    enabled = canOpen,
+                    enabled = domain != null,
                     modifier = Modifier
                         .weight(1f)
                         .height(50.dp),
@@ -915,7 +1036,7 @@ private fun BoxScope.ResultPanel(
                         text = "访问",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (canOpen) Color.White else Color(0xFF5C635D),
+                        color = if (domain != null) Color.White else Color(0xFF5C635D),
                     )
                 }
             }
@@ -944,6 +1065,106 @@ private val scannerColorScheme = darkColorScheme(
     surface = Color.Black,
 )
 
+private val historyColorScheme = lightColorScheme(
+    primary = Color(0xFFC4612F),
+    onPrimary = Color.White,
+    secondary = Color(0xFF356B3A),
+    background = Color(0xFFF7F4EF),
+    onBackground = Color(0xFF1F2421),
+    surface = Color(0xFFFFFBF5),
+    onSurface = Color(0xFF1F2421),
+    error = Color(0xFFB3261E),
+)
+
+@Composable
+private fun LinkSafetyDialog(
+    text: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val url = text.normalizedWebUrl()
+    val domain = text.webDomain()
+    if (url == null || domain == null) {
+        LaunchedEffect(text) { onDismiss() }
+        return
+    }
+    val isSecure = Uri.parse(url).scheme.equals("https", ignoreCase = true)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(24.dp),
+        containerColor = Color(0xFFFFFBF5),
+        titleContentColor = Color(0xFF1F2421),
+        textContentColor = Color(0xFF5C635D),
+        title = {
+            Text(
+                "确认访问链接？",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column {
+                Text("即将打开以下域名", color = Color(0xFF5C635D), fontSize = 14.sp)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .background(Color(0xFFF2E3D6), RoundedCornerShape(12.dp))
+                        .border(
+                            1.dp,
+                            Color(0xFFC4612F).copy(alpha = 0.25f),
+                            RoundedCornerShape(12.dp),
+                        )
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        domain,
+                        color = Color(0xFF1F2421),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        lineHeight = 20.sp,
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (isSecure) Color(0xFFE8F5E9) else Color(0xFFFFE9E7),
+                            RoundedCornerShape(12.dp),
+                        )
+                        .padding(12.dp),
+                ) {
+                    Text(
+                        if (isSecure) {
+                            "请确认域名与你预期的一致，再继续访问。"
+                        } else {
+                            "此链接使用未加密的 HTTP，请谨慎访问。"
+                        },
+                        color = if (isSecure) Color(0xFF356B3A) else Color(0xFFB3261E),
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                shape = RoundedCornerShape(999.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+            ) {
+                Text("确认访问", color = Color.White)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = Color(0xFF1F2421))
+            }
+        },
+    )
+}
+
 private fun Context.hasCameraPermission(): Boolean {
     return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 }
@@ -952,6 +1173,51 @@ private fun Context.copyToClipboard(text: String) {
     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText("扫码结果", text))
     Toast.makeText(this, "内容已复制", Toast.LENGTH_SHORT).show()
+}
+
+private fun Context.shareText(text: String) {
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    val chooser = Intent.createChooser(sendIntent, "分享扫描结果").apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        startActivity(chooser)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(this, "没有可分享内容的应用", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun Context.openAppPermissionSettings() {
+    val intent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", packageName, null),
+    ).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(this, "无法打开应用设置", Toast.LENGTH_SHORT).show()
+    }
+}
+
+@Suppress("DEPRECATION")
+private fun Context.vibrateForScanSuccess() {
+    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        getSystemService(VibratorManager::class.java)?.defaultVibrator
+    } else {
+        getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    } ?: return
+
+    if (!vibrator.hasVibrator()) return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        vibrator.vibrate(VibrationEffect.createOneShot(80L, VibrationEffect.DEFAULT_AMPLITUDE))
+    } else {
+        vibrator.vibrate(80L)
+    }
 }
 
 private fun Context.openInBrowser(text: String) {
@@ -975,16 +1241,19 @@ private fun Context.openInBrowser(text: String) {
 
 internal fun String.normalizedWebUrl(): String? {
     val value = trim()
-    if (value.isBlank()) return null
+    if (value.isBlank() || value.any { it.isWhitespace() }) return null
 
     val parsed = Uri.parse(value)
     if (parsed.scheme.equals("http", ignoreCase = true) || parsed.scheme.equals("https", ignoreCase = true)) {
-        return value
+        return value.takeIf { !parsed.host.isNullOrBlank() }
     }
 
     return if (Patterns.WEB_URL.matcher(value).matches()) {
-        "https://$value"
+        "https://$value".takeIf { !Uri.parse(it).host.isNullOrBlank() }
     } else {
         null
     }
 }
+
+internal fun String.webDomain(): String? =
+    normalizedWebUrl()?.let { Uri.parse(it).host?.removePrefix("www.") }

@@ -28,6 +28,18 @@ class ScanHistoryViewModel(
         }
     }
 
+    fun deleteScan(id: Long) {
+        viewModelScope.launch {
+            repository.delete(id)
+        }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch {
+            repository.clear()
+        }
+    }
+
     companion object {
         fun factory(context: Context): ViewModelProvider.Factory {
             val repository = RoomScanHistoryRepository(

@@ -6,6 +6,10 @@ interface ScanHistoryRepository {
     fun observeHistory(): Flow<List<ScanHistoryEntity>>
 
     suspend fun add(content: String, scannedAt: Long, source: ScanSource)
+
+    suspend fun delete(id: Long)
+
+    suspend fun clear()
 }
 
 class RoomScanHistoryRepository(
@@ -21,5 +25,13 @@ class RoomScanHistoryRepository(
                 source = source,
             ),
         )
+    }
+
+    override suspend fun delete(id: Long) {
+        dao.deleteById(id)
+    }
+
+    override suspend fun clear() {
+        dao.clear()
     }
 }

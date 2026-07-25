@@ -19,8 +19,15 @@ Android 扫码应用：支持实时摄像头扫描与相册图片识别二维码
 - **手电筒**：支持闪光灯的设备可开关补光
 - **结果操作**
   - 复制到剪贴板
-  - 若内容为可访问链接，可在浏览器中打开
+  - 通过 Android 系统分享面板分享
+  - 链接显示实际域名，并在安全确认后打开
   - 继续扫描
+- **扫描历史**
+  - 按内容或域名搜索
+  - 删除单条记录或确认后清空全部
+- **基础体验**
+  - 扫描成功短振动反馈
+  - 相机权限被拒绝后可从扫码页重新授权
 
 ### 支持的码制
 
@@ -99,6 +106,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 权限 | 说明 |
 | --- | --- |
 | `CAMERA` | 实时扫码（运行时申请） |
+| `VIBRATE` | 扫描成功时提供短振动反馈 |
 
 相册选图通过 Photo Picker（`PickVisualMedia`），无需额外存储权限。  
 `AndroidManifest` 中 `camera` / `camera.flash` 为 `required="false"`，无相机设备仍可使用相册识别。
@@ -117,7 +125,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 2. 将二维码/条码对准扫描框，成功后底部弹出结果
 3. 右上角 **相册** 可从图片识别
 4. 底部手电筒按钮在支持设备上开启补光
-5. 结果页可 **复制**、**访问**（链接）、**继续扫描**
+5. 结果页可 **复制**、**分享**、确认域名后 **访问**（链接）、**继续扫描**
+6. 右上角 **历史** 可搜索、删除或清空扫描记录
 
 ## 常见问题
 
@@ -132,4 +141,4 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 版本
 
-当前 `versionName`：`1.0`，`versionCode`：`1`（见 `app/build.gradle.kts`）。
+当前 `versionName`：`1.1`，`versionCode`：`2`（见 `app/build.gradle.kts`）。

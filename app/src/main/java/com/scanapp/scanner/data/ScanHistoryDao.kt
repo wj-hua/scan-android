@@ -12,4 +12,10 @@ interface ScanHistoryDao {
 
     @Insert
     suspend fun insert(item: ScanHistoryEntity)
+
+    @Query("DELETE FROM scan_history WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM scan_history")
+    suspend fun clear()
 }

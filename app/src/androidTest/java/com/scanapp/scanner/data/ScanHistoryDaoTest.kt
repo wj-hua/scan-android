@@ -43,4 +43,17 @@ class ScanHistoryDaoTest {
         assertEquals(listOf(ScanSource.CAMERA, ScanSource.GALLERY, ScanSource.CAMERA), history.map { it.source })
         assertEquals(listOf(200L, 200L, 100L), history.map { it.scannedAt })
     }
+
+    @Test
+    fun deleteAndClear_removeExpectedRecords() = runTest {
+        dao.insert(ScanHistoryEntity(content = "first", scannedAt = 100L, source = ScanSource.CAMERA))
+        dao.insert(ScanHistoryEntity(content = "second", scannedAt = 200L, source = ScanSource.GALLERY))
+
+        val second = dao.observeAll().first().first()
+        dao.deleteById(second.id)
+        assertEquals(listOf("first"), dao.observeAll().first().map { it.content })
+
+        dao.clear()
+        assertEquals(emptyList<ScanHistoryEntity>(), dao.observeAll().first())
+    }
 }

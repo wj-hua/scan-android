@@ -59,6 +59,19 @@ class ScanHistoryViewModelTest {
 
         assertEquals(emptyList<RecordedScan>(), repository.recorded)
     }
+
+    @Test
+    fun `delete and clear are forwarded to repository`() = runTest(dispatcher) {
+        val repository = FakeScanHistoryRepository()
+        val viewModel = ScanHistoryViewModel(repository)
+
+        viewModel.deleteScan(42L)
+        viewModel.clearHistory()
+        advanceUntilIdle()
+
+        assertEquals(listOf(42L), repository.deletedIds)
+        assertEquals(1, repository.clearCount)
+    }
 }
 
 private data class RecordedScan(
@@ -70,10 +83,20 @@ private data class RecordedScan(
 private class FakeScanHistoryRepository : ScanHistoryRepository {
     private val history = MutableStateFlow<List<ScanHistoryEntity>>(emptyList())
     val recorded = mutableListOf<RecordedScan>()
+    val deletedIds = mutableListOf<Long>()
+    var clearCount = 0
 
     override fun observeHistory(): Flow<List<ScanHistoryEntity>> = history
 
     override suspend fun add(content: String, scannedAt: Long, source: ScanSource) {
         recorded += RecordedScan(content, scannedAt, source)
+    }
+
+    override suspend fun delete(id: Long) {
+        deletedIds += id
+    }
+
+    override suspend fun clear() {
+        clearCount += 1
     }
 }
