@@ -10,6 +10,8 @@ data class ScanHistoryEntity(
     val content: String,
     val scannedAt: Long,
     val source: ScanSource,
+    val resultType: ScanResultType = ScanResultType.TEXT,
+    val isFavorite: Boolean = false,
 )
 
 enum class ScanSource {

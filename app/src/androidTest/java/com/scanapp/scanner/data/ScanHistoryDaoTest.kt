@@ -56,4 +56,18 @@ class ScanHistoryDaoTest {
         dao.clear()
         assertEquals(emptyList<ScanHistoryEntity>(), dao.observeAll().first())
     }
+
+    @Test
+    fun favoriteRecords_areNotAutomaticallyDeleted() = runTest {
+        dao.insert(ScanHistoryEntity(content = "old", scannedAt = 100L, source = ScanSource.CAMERA))
+        dao.insert(ScanHistoryEntity(content = "favorite", scannedAt = 100L, source = ScanSource.CAMERA))
+        val favorite = dao.observeAll().first().first()
+        dao.setFavorite(favorite.id, true)
+
+        dao.deleteOlderThan(200L)
+
+        val remaining = dao.observeAll().first()
+        assertEquals(listOf("favorite"), remaining.map { it.content })
+        assertEquals(listOf(true), remaining.map { it.isFavorite })
+    }
 }

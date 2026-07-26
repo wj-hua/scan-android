@@ -32,7 +32,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scanapp.scanner.data.ScanHistoryEntity
 import com.scanapp.scanner.data.ScanSource
-import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -59,25 +57,22 @@ fun HistoryScreen(
     onBack: () -> Unit,
     onCopy: (String) -> Unit,
     onShare: (String) -> Unit,
-    onOpenBrowser: (String) -> Unit,
+    onSmartAction: (SmartScanResult) -> Unit,
+    onToggleFavorite: (Long, Boolean) -> Unit,
     onDelete: (Long) -> Unit,
     onClear: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
-    val systemUiController = rememberSystemUiController()
     var query by rememberSaveable { mutableStateOf("") }
     var itemPendingDelete by rememberSaveable { mutableStateOf<Long?>(null) }
     var showClearConfirmation by rememberSaveable { mutableStateOf(false) }
     val filteredItems = if (query.isBlank()) {
         items
     } else {
-        items.filter { it.content.contains(query.trim(), ignoreCase = true) }
-    }
-
-    SideEffect {
-        systemUiController.setStatusBarColor(
-            color = Color(0xFFF7F4EF),
-            darkIcons = true,
-        )
+        items.filter {
+            it.content.contains(query.trim(), ignoreCase = true) ||
+                it.resultType.displayName.contains(query.trim(), ignoreCase = true)
+        }
     }
 
     Column(
@@ -90,6 +85,7 @@ fun HistoryScreen(
             hasItems = items.isNotEmpty(),
             onBack = onBack,
             onClear = { showClearConfirmation = true },
+            onOpenSettings = onOpenSettings,
         )
         OutlinedTextField(
             value = query,
@@ -120,7 +116,12 @@ fun HistoryScreen(
                         item = item,
                         onCopy = { onCopy(item.content) },
                         onShare = { onShare(item.content) },
-                        onOpenBrowser = { onOpenBrowser(item.content) },
+                        onSmartAction = {
+                            onSmartAction(parseScanResult(item.content, item.resultType))
+                        },
+                        onToggleFavorite = {
+                            onToggleFavorite(item.id, !item.isFavorite)
+                        },
                         onDelete = { itemPendingDelete = item.id },
                     )
                 }
@@ -168,6 +169,7 @@ private fun HistoryTopBar(
     hasItems: Boolean,
     onBack: () -> Unit,
     onClear: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -201,6 +203,9 @@ private fun HistoryTopBar(
         TextButton(onClick = onClear, enabled = hasItems) {
             Text("清空", color = if (hasItems) Color(0xFFB3261E) else Color(0xFF9A9389))
         }
+        TextButton(onClick = onOpenSettings) {
+            Text("设置", color = Color(0xFFC4612F))
+        }
     }
 }
 
@@ -232,10 +237,11 @@ private fun HistoryItem(
     item: ScanHistoryEntity,
     onCopy: () -> Unit,
     onShare: () -> Unit,
-    onOpenBrowser: () -> Unit,
+    onSmartAction: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val domain = item.content.webDomain()
+    val smartResult = parseScanResult(item.content, item.resultType)
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -248,20 +254,37 @@ private fun HistoryItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(if (item.source == ScanSource.CAMERA) Color(0xFFF2E3D6) else Color(0xFFE8F5E9))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color(0xFFF2E3D6))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = "${item.resultType.icon} ${item.resultType.displayName}",
+                            color = Color(0xFFC4612F),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                     Text(
-                        text = item.source.displayName(),
-                        color = if (item.source == ScanSource.CAMERA) Color(0xFFC4612F) else Color(0xFF4CAF50),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        item.source.displayName(),
+                        color = Color(0xFF5C635D),
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(start = 8.dp),
                     )
                 }
-                Text(item.scannedAt.displayTime(), color = Color(0xFF5C635D), fontSize = 12.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(item.scannedAt.displayTime(), color = Color(0xFF5C635D), fontSize = 12.sp)
+                    TextButton(onClick = onToggleFavorite) {
+                        Text(
+                            if (item.isFavorite) "★" else "☆",
+                            color = if (item.isFavorite) Color(0xFFE09A16) else Color(0xFF5C635D),
+                            fontSize = 22.sp,
+                        )
+                    }
+                }
             }
             Text(
                 text = item.content,
@@ -277,15 +300,6 @@ private fun HistoryItem(
                     .border(1.dp, Color(0xFFE7E1D7), RoundedCornerShape(14.dp))
                     .padding(13.dp),
             )
-            domain?.let {
-                Text(
-                    text = "链接域名：$it",
-                    color = Color(0xFF356B3A),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -296,17 +310,21 @@ private fun HistoryItem(
                 TextButton(onClick = onDelete) { Text("删除", color = Color(0xFFB3261E)) }
                 TextButton(onClick = onCopy) { Text("复制", color = Color(0xFF1F2421)) }
                 TextButton(onClick = onShare) { Text("分享", color = Color(0xFF1F2421)) }
-                Button(
-                    onClick = onOpenBrowser,
-                    enabled = domain != null,
-                    shape = RoundedCornerShape(999.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4CAF50),
-                        disabledContainerColor = Color(0xFFE7E1D7),
-                        disabledContentColor = Color(0xFF5C635D),
-                    ),
-                ) {
-                    Text(if (domain == null) "非网页链接" else "访问")
+                smartResult.actionLabel?.let { label ->
+                    Button(
+                        onClick = onSmartAction,
+                        shape = RoundedCornerShape(999.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Clip,
+                        )
+                    }
                 }
             }
         }

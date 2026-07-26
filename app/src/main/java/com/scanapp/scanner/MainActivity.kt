@@ -14,8 +14,10 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.provider.ContactsContract
 import android.util.Patterns
 import android.widget.Toast
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -50,6 +52,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -118,6 +121,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.common.InputImage
 import com.scanapp.scanner.data.ScanSource
+import com.scanapp.scanner.data.ScanResultType
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.concurrent.Executors
@@ -151,19 +155,23 @@ fun ScanApp(onFinish: () -> Unit) {
         factory = ScanHistoryViewModel.factory(context.applicationContext),
     )
     val history by historyViewModel.history.collectAsStateWithLifecycle()
+    val privacyMode by historyViewModel.privacyMode.collectAsStateWithLifecycle()
+    val autoCleanupPeriod by historyViewModel.autoCleanupPeriod.collectAsStateWithLifecycle()
     var hasCameraPermission by remember { mutableStateOf(context.hasCameraPermission()) }
     var scanResult by remember { mutableStateOf<String?>(null) }
+    var scanResultType by remember { mutableStateOf<ScanResultType?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var torchEnabled by remember { mutableStateOf(false) }
     var hasFlash by remember { mutableStateOf(false) }
     var isPickingImage by remember { mutableStateOf(false) }
     var isShowingHistory by rememberSaveable { mutableStateOf(false) }
+    var isShowingSettings by rememberSaveable { mutableStateOf(false) }
     var pendingLink by remember { mutableStateOf<String?>(null) }
     val isCameraResultAccepted = remember { AtomicBoolean(false) }
     var lastBackPressTime by remember { mutableStateOf(0L) }
 
     fun applySystemBarsStyle() {
-        val useDarkStatusBarIcons = isShowingHistory
+        val useDarkStatusBarIcons = isShowingHistory || isShowingSettings
         activity.enableEdgeToEdge(
             statusBarStyle = if (useDarkStatusBarIcons) {
                 SystemBarStyle.light(
@@ -194,13 +202,28 @@ fun ScanApp(onFinish: () -> Unit) {
         applySystemBarsStyle()
     }
 
-    fun acceptScan(text: String, source: ScanSource, successNotice: String) {
+    LaunchedEffect(privacyMode) {
+        if (privacyMode) {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
+    fun acceptScan(
+        text: String,
+        source: ScanSource,
+        successNotice: String,
+        typeHint: ScanResultType? = null,
+    ) {
         if (source == ScanSource.CAMERA && !isCameraResultAccepted.compareAndSet(false, true)) return
+        val smartResult = parseScanResult(text, typeHint)
         torchEnabled = false
         scanResult = text
-        notice = successNotice
+        scanResultType = smartResult.type
+        notice = if (privacyMode) "$successNotice · 隐私模式未保存历史" else successNotice
         context.vibrateForScanSuccess()
-        historyViewModel.recordScan(text, source)
+        historyViewModel.recordScan(text, source, smartResult.type)
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -217,12 +240,17 @@ fun ScanApp(onFinish: () -> Unit) {
         isPickingImage = true
         notice = "正在识别相册图片..."
         scope.launch {
-            val text = scanImageFromGallery(context, barcodeScanner, uri)
+            val detected = scanImageFromGallery(context, barcodeScanner, uri)
             isPickingImage = false
-            if (text.isNullOrBlank()) {
+            if (detected == null) {
                 notice = "图片中未识别到二维码或条码"
             } else {
-                acceptScan(text, ScanSource.GALLERY, "已从相册识别")
+                acceptScan(
+                    detected.text,
+                    ScanSource.GALLERY,
+                    "已从相册识别",
+                    detected.typeHint,
+                )
             }
         }
     }
@@ -232,10 +260,14 @@ fun ScanApp(onFinish: () -> Unit) {
             scanResult != null -> {
                 isCameraResultAccepted.set(false)
                 scanResult = null
+                scanResultType = null
                 notice = null
             }
             isShowingHistory -> {
                 isShowingHistory = false
+            }
+            isShowingSettings -> {
+                isShowingSettings = false
             }
             else -> {
                 val currentTime = System.currentTimeMillis()
@@ -272,16 +304,33 @@ fun ScanApp(onFinish: () -> Unit) {
 
     MaterialTheme(colorScheme = scannerColorScheme) {
         Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
-            if (isShowingHistory) {
+            if (isShowingSettings) {
+                MaterialTheme(colorScheme = historyColorScheme) {
+                    SettingsScreen(
+                        privacyMode = privacyMode,
+                        autoCleanupPeriod = autoCleanupPeriod,
+                        onBack = { isShowingSettings = false },
+                        onPrivacyModeChange = historyViewModel::setPrivacyMode,
+                        onAutoCleanupPeriodChange = historyViewModel::setAutoCleanupPeriod,
+                    )
+                }
+            } else if (isShowingHistory) {
                 MaterialTheme(colorScheme = historyColorScheme) {
                     HistoryScreen(
                         items = history,
                         onBack = { isShowingHistory = false },
                         onCopy = context::copyToClipboard,
                         onShare = context::shareText,
-                        onOpenBrowser = { pendingLink = it },
+                        onSmartAction = { result ->
+                            context.performSmartAction(result) { pendingLink = it }
+                        },
+                        onToggleFavorite = historyViewModel::setFavorite,
                         onDelete = historyViewModel::deleteScan,
                         onClear = historyViewModel::clearHistory,
+                        onOpenSettings = {
+                            isShowingHistory = false
+                            isShowingSettings = true
+                        },
                     )
                 }
             } else {
@@ -293,9 +342,14 @@ fun ScanApp(onFinish: () -> Unit) {
                             torchEnabled = torchEnabled,
                             onTorchAvailabilityChanged = { hasFlash = it },
                             onTorchChanged = { torchEnabled = it },
-                            onBarcodeFound = { text ->
+                            onBarcodeFound = { detected ->
                                 if (scanResult == null) {
-                                    acceptScan(text, ScanSource.CAMERA, "扫码成功")
+                                    acceptScan(
+                                        detected.text,
+                                        ScanSource.CAMERA,
+                                        "扫码成功",
+                                        detected.typeHint,
+                                    )
                                 }
                             },
                             onCameraError = { notice = it },
@@ -320,6 +374,10 @@ fun ScanApp(onFinish: () -> Unit) {
 
                     TopBar(
                         onFinish = onFinish,
+                        onShowSettings = {
+                            torchEnabled = false
+                            isShowingSettings = true
+                        },
                         onShowHistory = {
                             torchEnabled = false
                             isShowingHistory = true
@@ -375,12 +433,16 @@ fun ScanApp(onFinish: () -> Unit) {
                     scanResult?.let { result ->
                         ResultPanel(
                             result = result,
+                            resultType = scanResultType,
                             onCopy = { context.copyToClipboard(result) },
                             onShare = { context.shareText(result) },
-                            onOpenBrowser = { pendingLink = result },
+                            onSmartAction = { smartResult ->
+                                context.performSmartAction(smartResult) { pendingLink = it }
+                            },
                             onScanAgain = {
                                 isCameraResultAccepted.set(false)
                                 scanResult = null
+                                scanResultType = null
                                 notice = null
                             },
                         )
@@ -435,7 +497,7 @@ private fun CameraScannerPreview(
     torchEnabled: Boolean,
     onTorchAvailabilityChanged: (Boolean) -> Unit,
     onTorchChanged: (Boolean) -> Unit,
-    onBarcodeFound: (String) -> Unit,
+    onBarcodeFound: (DetectedBarcode) -> Unit,
     onCameraError: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -530,7 +592,7 @@ private fun analyzeBarcode(
     scanner: BarcodeScanner,
     imageProxy: ImageProxy,
     processing: AtomicBoolean,
-    onBarcodeFound: (String) -> Unit,
+    onBarcodeFound: (DetectedBarcode) -> Unit,
 ) {
     if (!processing.compareAndSet(false, true)) {
         imageProxy.close()
@@ -547,7 +609,7 @@ private fun analyzeBarcode(
     val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
     scanner.process(image)
         .addOnSuccessListener { barcodes ->
-            barcodes.firstReadableText()?.let(onBarcodeFound)
+            barcodes.firstReadableBarcode()?.let(onBarcodeFound)
         }
         .addOnCompleteListener {
             processing.set(false)
@@ -559,20 +621,48 @@ private suspend fun scanImageFromGallery(
     context: Context,
     scanner: BarcodeScanner,
     uri: Uri,
-): String? {
+): DetectedBarcode? {
     return try {
         val image = InputImage.fromFilePath(context, uri)
-        scanner.process(image).await().firstReadableText()
+        scanner.process(image).await().firstReadableBarcode()
     } catch (_: Exception) {
         null
     }
 }
 
-private fun List<Barcode>.firstReadableText(): String? {
+private data class DetectedBarcode(
+    val text: String,
+    val typeHint: ScanResultType?,
+)
+
+private fun List<Barcode>.firstReadableBarcode(): DetectedBarcode? {
     return firstNotNullOfOrNull { barcode ->
-        barcode.rawValue?.trim()?.takeIf { it.isNotEmpty() }
+        val text = barcode.rawValue?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return@firstNotNullOfOrNull null
+        val typeHint = when (barcode.valueType) {
+            Barcode.TYPE_URL -> ScanResultType.URL
+            Barcode.TYPE_WIFI -> ScanResultType.WIFI
+            Barcode.TYPE_PHONE -> ScanResultType.PHONE
+            Barcode.TYPE_EMAIL -> ScanResultType.EMAIL
+            Barcode.TYPE_CONTACT_INFO -> ScanResultType.CONTACT
+            Barcode.TYPE_GEO -> ScanResultType.MAP
+            else -> if (barcode.format in LINEAR_BARCODE_FORMATS) ScanResultType.TEXT else null
+        }
+        DetectedBarcode(text, typeHint)
     }
 }
+
+private val LINEAR_BARCODE_FORMATS = setOf(
+    Barcode.FORMAT_CODABAR,
+    Barcode.FORMAT_CODE_39,
+    Barcode.FORMAT_CODE_93,
+    Barcode.FORMAT_CODE_128,
+    Barcode.FORMAT_EAN_8,
+    Barcode.FORMAT_EAN_13,
+    Barcode.FORMAT_ITF,
+    Barcode.FORMAT_UPC_A,
+    Barcode.FORMAT_UPC_E,
+)
 
 @Composable
 private fun CameraPermissionBackdrop(
@@ -645,6 +735,7 @@ private fun ScannerOverlay() {
 @Composable
 private fun TopBar(
     onFinish: () -> Unit,
+    onShowSettings: () -> Unit,
     onShowHistory: () -> Unit,
     onPickImage: () -> Unit,
 ) {
@@ -675,7 +766,21 @@ private fun TopBar(
                 modifier = Modifier.size(24.dp),
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButton(
+                onClick = onShowSettings,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.15f))
+                    .border(
+                        width = 1.5.dp,
+                        color = Color.White.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(12.dp),
+                    ),
+            ) {
+                Text("⚙", color = Color.White, fontSize = 22.sp)
+            }
             // Hand-drawn history button
             IconButton(
                 onClick = onShowHistory,
@@ -904,12 +1009,13 @@ private fun LoadingHint() {
 @Composable
 private fun BoxScope.ResultPanel(
     result: String,
+    resultType: ScanResultType?,
     onCopy: () -> Unit,
     onShare: () -> Unit,
-    onOpenBrowser: () -> Unit,
+    onSmartAction: (SmartScanResult) -> Unit,
     onScanAgain: () -> Unit,
 ) {
-    val domain = result.webDomain()
+    val smartResult = parseScanResult(result, resultType)
 
     Box(
         modifier = Modifier
@@ -939,7 +1045,7 @@ private fun BoxScope.ResultPanel(
             // Hand-drawn style title with accent
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "识别结果",
+                    text = smartResult.title,
                     color = Color(0xFF1F2421),
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
@@ -952,7 +1058,7 @@ private fun BoxScope.ResultPanel(
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "✓",
+                        text = "${smartResult.type.icon} ${smartResult.type.displayName}",
                         color = Color(0xFFC4612F),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
@@ -974,9 +1080,9 @@ private fun BoxScope.ResultPanel(
                     .border(1.dp, Color(0xFFE7E1D7), RoundedCornerShape(16.dp))
                     .padding(14.dp),
             )
-            domain?.let {
+            smartResult.subtitle?.takeIf { it != result }?.let {
                 Text(
-                    text = "链接域名：$it",
+                    text = it,
                     color = Color(0xFF356B3A),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
@@ -988,8 +1094,9 @@ private fun BoxScope.ResultPanel(
                 Button(
                     onClick = onCopy,
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(0.85f)
                         .height(50.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFFC4612F),
@@ -1007,8 +1114,9 @@ private fun BoxScope.ResultPanel(
                 Button(
                     onClick = onShare,
                     modifier = Modifier
-                        .weight(1f)
+                        .weight(0.85f)
                         .height(50.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
                     shape = RoundedCornerShape(999.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFFC4612F),
@@ -1017,27 +1125,30 @@ private fun BoxScope.ResultPanel(
                 ) {
                     Text("分享", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 }
-                Button(
-                    onClick = onOpenBrowser,
-                    enabled = domain != null,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(50.dp),
-                    shape = RoundedCornerShape(999.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4CAF50),
-                        contentColor = Color.White,
-                        disabledContainerColor = Color(0xFFE7E1D7),
-                        disabledContentColor = Color(0xFF5C635D),
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
-                ) {
-                    Text(
-                        text = "访问",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (domain != null) Color.White else Color(0xFF5C635D),
-                    )
+                smartResult.actionLabel?.let { actionLabel ->
+                    Button(
+                        onClick = { onSmartAction(smartResult) },
+                        modifier = Modifier
+                            .weight(1.3f)
+                            .height(50.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        shape = RoundedCornerShape(999.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF4CAF50),
+                            contentColor = Color.White,
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
+                    ) {
+                        Text(
+                            text = actionLabel,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Clip,
+                        )
+                    }
                 }
             }
             TextButton(
@@ -1217,6 +1328,46 @@ private fun Context.vibrateForScanSuccess() {
         vibrator.vibrate(VibrationEffect.createOneShot(80L, VibrationEffect.DEFAULT_AMPLITUDE))
     } else {
         vibrator.vibrate(80L)
+    }
+}
+
+private fun Context.performSmartAction(
+    result: SmartScanResult,
+    onUrlRequested: (String) -> Unit,
+) {
+    val intent = when (result.type) {
+        ScanResultType.URL -> {
+            onUrlRequested(result.rawValue)
+            return
+        }
+        ScanResultType.WIFI -> Intent(Settings.ACTION_WIFI_SETTINGS)
+        ScanResultType.PHONE -> Intent(
+            Intent.ACTION_DIAL,
+            Uri.parse("tel:${Uri.encode(result.phone.orEmpty())}"),
+        )
+        ScanResultType.EMAIL -> Intent(
+            Intent.ACTION_SENDTO,
+            Uri.parse("mailto:${Uri.encode(result.email.orEmpty())}"),
+        )
+        ScanResultType.CONTACT -> Intent(Intent.ACTION_INSERT).apply {
+            type = ContactsContract.Contacts.CONTENT_TYPE
+            putExtra(ContactsContract.Intents.Insert.NAME, result.contactName)
+            putExtra(ContactsContract.Intents.Insert.PHONE, result.phone)
+            putExtra(ContactsContract.Intents.Insert.EMAIL, result.email)
+        }
+        ScanResultType.MAP -> Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse(result.mapUri ?: result.rawValue),
+        )
+        ScanResultType.TEXT -> return
+    }.apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    try {
+        startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(this, "没有可执行此操作的应用", Toast.LENGTH_SHORT).show()
     }
 }
 
