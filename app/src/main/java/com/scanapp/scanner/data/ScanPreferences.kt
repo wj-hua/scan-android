@@ -30,8 +30,31 @@ class ScanPreferences(context: Context) {
             preferences.edit().putString(KEY_AUTO_CLEANUP, value.name).apply()
         }
 
+    var continuousScan: Boolean
+        get() = preferences.getBoolean(KEY_CONTINUOUS_SCAN, false)
+        set(value) {
+            preferences.edit().putBoolean(KEY_CONTINUOUS_SCAN, value).apply()
+        }
+
+    var vibrationEnabled: Boolean
+        get() = preferences.getBoolean(KEY_VIBRATION, true)
+        set(value) {
+            preferences.edit().putBoolean(KEY_VIBRATION, value).apply()
+        }
+
+    var duplicateDelaySeconds: Int
+        get() = preferences.getInt(KEY_DUPLICATE_DELAY, DEFAULT_DUPLICATE_DELAY_SECONDS)
+            .coerceIn(1, 10)
+        set(value) {
+            preferences.edit().putInt(KEY_DUPLICATE_DELAY, value.coerceIn(1, 10)).apply()
+        }
+
     private companion object {
         const val KEY_PRIVACY_MODE = "privacy_mode"
         const val KEY_AUTO_CLEANUP = "auto_cleanup"
+        const val KEY_CONTINUOUS_SCAN = "continuous_scan"
+        const val KEY_VIBRATION = "vibration"
+        const val KEY_DUPLICATE_DELAY = "duplicate_delay"
+        const val DEFAULT_DUPLICATE_DELAY_SECONDS = 3
     }
 }

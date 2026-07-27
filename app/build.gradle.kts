@@ -23,8 +23,8 @@ android {
         applicationId = "com.scanapp.scanner"
         minSdk = 24
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
         // 启用向量图形支持
@@ -105,6 +105,7 @@ dependencies {
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.zxing.core)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

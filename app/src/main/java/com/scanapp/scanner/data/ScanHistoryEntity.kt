@@ -17,4 +17,5 @@ data class ScanHistoryEntity(
 enum class ScanSource {
     CAMERA,
     GALLERY,
+    SHARE,
 }

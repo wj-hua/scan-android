@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
+import android.os.Parcelable
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -128,8 +129,11 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : ComponentActivity() {
+    private var sharedImageUri by mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        sharedImageUri = intent.sharedImageUri()
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.light(
@@ -139,13 +143,27 @@ class MainActivity : ComponentActivity() {
         )
 
         setContent {
-            ScanApp(onFinish = ::finish)
+            ScanApp(
+                onFinish = ::finish,
+                sharedImageUri = sharedImageUri,
+                onSharedImageConsumed = { sharedImageUri = null },
+            )
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        sharedImageUri = intent.sharedImageUri()
     }
 }
 
 @Composable
-fun ScanApp(onFinish: () -> Unit) {
+fun ScanApp(
+    onFinish: () -> Unit,
+    sharedImageUri: Uri? = null,
+    onSharedImageConsumed: () -> Unit = {},
+) {
     val context = LocalContext.current
     val activity = context as ComponentActivity
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -157,6 +175,9 @@ fun ScanApp(onFinish: () -> Unit) {
     val history by historyViewModel.history.collectAsStateWithLifecycle()
     val privacyMode by historyViewModel.privacyMode.collectAsStateWithLifecycle()
     val autoCleanupPeriod by historyViewModel.autoCleanupPeriod.collectAsStateWithLifecycle()
+    val continuousScan by historyViewModel.continuousScan.collectAsStateWithLifecycle()
+    val vibrationEnabled by historyViewModel.vibrationEnabled.collectAsStateWithLifecycle()
+    val duplicateDelaySeconds by historyViewModel.duplicateDelaySeconds.collectAsStateWithLifecycle()
     var hasCameraPermission by remember { mutableStateOf(context.hasCameraPermission()) }
     var scanResult by remember { mutableStateOf<String?>(null) }
     var scanResultType by remember { mutableStateOf<ScanResultType?>(null) }
@@ -166,12 +187,16 @@ fun ScanApp(onFinish: () -> Unit) {
     var isPickingImage by remember { mutableStateOf(false) }
     var isShowingHistory by rememberSaveable { mutableStateOf(false) }
     var isShowingSettings by rememberSaveable { mutableStateOf(false) }
+    var isShowingGenerator by rememberSaveable { mutableStateOf(false) }
     var pendingLink by remember { mutableStateOf<String?>(null) }
     val isCameraResultAccepted = remember { AtomicBoolean(false) }
+    val continuousScanGate = remember { ContinuousScanGate() }
+    var continuousScanCount by rememberSaveable { mutableStateOf(0) }
+    var pendingCsvItems by remember { mutableStateOf(emptyList<com.scanapp.scanner.data.ScanHistoryEntity>()) }
     var lastBackPressTime by remember { mutableStateOf(0L) }
 
     fun applySystemBarsStyle() {
-        val useDarkStatusBarIcons = isShowingHistory || isShowingSettings
+        val useDarkStatusBarIcons = isShowingHistory || isShowingSettings || isShowingGenerator
         activity.enableEdgeToEdge(
             statusBarStyle = if (useDarkStatusBarIcons) {
                 SystemBarStyle.light(
@@ -216,14 +241,44 @@ fun ScanApp(onFinish: () -> Unit) {
         successNotice: String,
         typeHint: ScanResultType? = null,
     ) {
-        if (source == ScanSource.CAMERA && !isCameraResultAccepted.compareAndSet(false, true)) return
+        if (source == ScanSource.CAMERA) {
+            if (continuousScan) {
+                if (!continuousScanGate.accept(text, duplicateDelaySeconds)) return
+            } else if (!isCameraResultAccepted.compareAndSet(false, true)) {
+                return
+            }
+        }
         val smartResult = parseScanResult(text, typeHint)
-        torchEnabled = false
-        scanResult = text
-        scanResultType = smartResult.type
-        notice = if (privacyMode) "$successNotice · 隐私模式未保存历史" else successNotice
-        context.vibrateForScanSuccess()
+        if (source == ScanSource.CAMERA && continuousScan) {
+            continuousScanCount += 1
+            notice = if (privacyMode) {
+                "连续扫码 $continuousScanCount 条 · 隐私模式未保存"
+            } else {
+                "连续扫码 · 已记录 $continuousScanCount 条"
+            }
+        } else {
+            torchEnabled = false
+            scanResult = text
+            scanResultType = smartResult.type
+            notice = if (privacyMode) "$successNotice · 隐私模式未保存历史" else successNotice
+        }
+        if (vibrationEnabled) context.vibrateForScanSuccess()
         historyViewModel.recordScan(text, source, smartResult.type)
+    }
+
+    val csvExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv"),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use {
+                it.write(buildScanHistoryCsv(pendingCsvItems))
+            } ?: error("无法打开导出文件")
+        }.onSuccess {
+            Toast.makeText(context, "CSV 已导出", Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            Toast.makeText(context, "CSV 导出失败，请重试", Toast.LENGTH_SHORT).show()
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -255,6 +310,28 @@ fun ScanApp(onFinish: () -> Unit) {
         }
     }
 
+    LaunchedEffect(sharedImageUri) {
+        val uri = sharedImageUri ?: return@LaunchedEffect
+        isShowingGenerator = false
+        isShowingSettings = false
+        isShowingHistory = false
+        isPickingImage = true
+        notice = "正在识别分享的图片..."
+        val detected = scanImageFromGallery(context, barcodeScanner, uri)
+        isPickingImage = false
+        if (detected == null) {
+            notice = "分享的图片中未识别到二维码或条码"
+        } else {
+            acceptScan(
+                detected.text,
+                ScanSource.SHARE,
+                "已从分享图片识别",
+                detected.typeHint,
+            )
+        }
+        onSharedImageConsumed()
+    }
+
     BackHandler {
         when {
             scanResult != null -> {
@@ -268,6 +345,9 @@ fun ScanApp(onFinish: () -> Unit) {
             }
             isShowingSettings -> {
                 isShowingSettings = false
+            }
+            isShowingGenerator -> {
+                isShowingGenerator = false
             }
             else -> {
                 val currentTime = System.currentTimeMillis()
@@ -297,21 +377,35 @@ fun ScanApp(onFinish: () -> Unit) {
     }
 
     LaunchedEffect(Unit) {
-        if (!hasCameraPermission) {
+        if (!hasCameraPermission && sharedImageUri == null) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
     MaterialTheme(colorScheme = scannerColorScheme) {
         Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
-            if (isShowingSettings) {
+            if (isShowingGenerator) {
+                MaterialTheme(colorScheme = historyColorScheme) {
+                    QrGeneratorScreen(onBack = { isShowingGenerator = false })
+                }
+            } else if (isShowingSettings) {
                 MaterialTheme(colorScheme = historyColorScheme) {
                     SettingsScreen(
                         privacyMode = privacyMode,
                         autoCleanupPeriod = autoCleanupPeriod,
+                        continuousScan = continuousScan,
+                        vibrationEnabled = vibrationEnabled,
+                        duplicateDelaySeconds = duplicateDelaySeconds,
                         onBack = { isShowingSettings = false },
                         onPrivacyModeChange = historyViewModel::setPrivacyMode,
                         onAutoCleanupPeriodChange = historyViewModel::setAutoCleanupPeriod,
+                        onContinuousScanChange = {
+                            continuousScanCount = 0
+                            continuousScanGate.reset()
+                            historyViewModel.setContinuousScan(it)
+                        },
+                        onVibrationEnabledChange = historyViewModel::setVibrationEnabled,
+                        onDuplicateDelayChange = historyViewModel::setDuplicateDelaySeconds,
                     )
                 }
             } else if (isShowingHistory) {
@@ -327,6 +421,10 @@ fun ScanApp(onFinish: () -> Unit) {
                         onToggleFavorite = historyViewModel::setFavorite,
                         onDelete = historyViewModel::deleteScan,
                         onClear = historyViewModel::clearHistory,
+                        onExportCsv = {
+                            pendingCsvItems = history
+                            csvExportLauncher.launch("scanapp-history.csv")
+                        },
                         onOpenSettings = {
                             isShowingHistory = false
                             isShowingSettings = true
@@ -374,6 +472,10 @@ fun ScanApp(onFinish: () -> Unit) {
 
                     TopBar(
                         onFinish = onFinish,
+                        onShowGenerator = {
+                            torchEnabled = false
+                            isShowingGenerator = true
+                        },
                         onShowSettings = {
                             torchEnabled = false
                             isShowingSettings = true
@@ -735,6 +837,7 @@ private fun ScannerOverlay() {
 @Composable
 private fun TopBar(
     onFinish: () -> Unit,
+    onShowGenerator: () -> Unit,
     onShowSettings: () -> Unit,
     onShowHistory: () -> Unit,
     onPickImage: () -> Unit,
@@ -767,6 +870,20 @@ private fun TopBar(
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButton(
+                onClick = onShowGenerator,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.15f))
+                    .border(
+                        width = 1.5.dp,
+                        color = Color.White.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(12.dp),
+                    ),
+            ) {
+                Text("▦", color = Color.White, fontSize = 23.sp)
+            }
             IconButton(
                 onClick = onShowSettings,
                 modifier = Modifier
@@ -1408,3 +1525,13 @@ internal fun String.normalizedWebUrl(): String? {
 
 internal fun String.webDomain(): String? =
     normalizedWebUrl()?.let { Uri.parse(it).host?.removePrefix("www.") }
+
+private fun Intent.sharedImageUri(): Uri? {
+    if (action != Intent.ACTION_SEND || type?.startsWith("image/") != true) return null
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+    } else {
+        @Suppress("DEPRECATION")
+        (getParcelableExtra<Parcelable>(Intent.EXTRA_STREAM) as? Uri)
+    } ?: clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+}

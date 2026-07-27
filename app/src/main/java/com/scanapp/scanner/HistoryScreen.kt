@@ -61,6 +61,7 @@ fun HistoryScreen(
     onToggleFavorite: (Long, Boolean) -> Unit,
     onDelete: (Long) -> Unit,
     onClear: () -> Unit,
+    onExportCsv: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -85,6 +86,7 @@ fun HistoryScreen(
             hasItems = items.isNotEmpty(),
             onBack = onBack,
             onClear = { showClearConfirmation = true },
+            onExportCsv = onExportCsv,
             onOpenSettings = onOpenSettings,
         )
         OutlinedTextField(
@@ -169,6 +171,7 @@ private fun HistoryTopBar(
     hasItems: Boolean,
     onBack: () -> Unit,
     onClear: () -> Unit,
+    onExportCsv: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     Row(
@@ -200,11 +203,14 @@ private fun HistoryTopBar(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onClear, enabled = hasItems) {
-            Text("清空", color = if (hasItems) Color(0xFFB3261E) else Color(0xFF9A9389))
+        TextButton(onClick = onExportCsv, enabled = hasItems) {
+            Text("CSV", color = if (hasItems) Color(0xFF356B3A) else Color(0xFF9A9389))
         }
         TextButton(onClick = onOpenSettings) {
             Text("设置", color = Color(0xFFC4612F))
+        }
+        TextButton(onClick = onClear, enabled = hasItems) {
+            Text("清空", color = if (hasItems) Color(0xFFB3261E) else Color(0xFF9A9389))
         }
     }
 }
@@ -334,6 +340,7 @@ private fun HistoryItem(
 private fun ScanSource.displayName(): String = when (this) {
     ScanSource.CAMERA -> "相机扫描"
     ScanSource.GALLERY -> "相册识别"
+    ScanSource.SHARE -> "系统分享"
 }
 
 private fun Long.displayTime(): String =

@@ -30,6 +30,9 @@ class ScanHistoryViewModel(
     val autoCleanupPeriod = MutableStateFlow(
         preferences?.autoCleanupPeriod ?: AutoCleanupPeriod.NEVER,
     )
+    val continuousScan = MutableStateFlow(preferences?.continuousScan ?: false)
+    val vibrationEnabled = MutableStateFlow(preferences?.vibrationEnabled ?: true)
+    val duplicateDelaySeconds = MutableStateFlow(preferences?.duplicateDelaySeconds ?: 3)
 
     init {
         cleanExpiredHistory()
@@ -70,6 +73,22 @@ class ScanHistoryViewModel(
         preferences?.autoCleanupPeriod = period
         autoCleanupPeriod.value = period
         cleanExpiredHistory()
+    }
+
+    fun setContinuousScan(enabled: Boolean) {
+        preferences?.continuousScan = enabled
+        continuousScan.value = enabled
+    }
+
+    fun setVibrationEnabled(enabled: Boolean) {
+        preferences?.vibrationEnabled = enabled
+        vibrationEnabled.value = enabled
+    }
+
+    fun setDuplicateDelaySeconds(seconds: Int) {
+        val normalized = seconds.coerceIn(1, 10)
+        preferences?.duplicateDelaySeconds = normalized
+        duplicateDelaySeconds.value = normalized
     }
 
     private fun cleanExpiredHistory() {
