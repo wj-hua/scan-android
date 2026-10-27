@@ -81,9 +81,10 @@ scan-android/
 
 ## 环境要求
 
-- JDK 17
-- Android SDK（含 Platform 35、对应 Build-Tools）
-- 推荐 Android Studio Ladybug 或更新版本
+- JDK 17 ~ 25（推荐直接用 Android Studio 内置的 JBR 25）
+- Gradle 9.7 + AGP 9.3.1（Gradle Wrapper 已内置，无需手动安装）
+- Android SDK（含 Platform 36、对应 Build-Tools）
+- 推荐 Android Studio Narwhal 或更新版本
 - 真机或模拟器 API 24+
 
 本地 SDK 路径写在 `local.properties`：
