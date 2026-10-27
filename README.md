@@ -126,7 +126,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 桌面名称与图标
 
-- 应用名：`res/values/strings.xml` → `app_name`（当前为 **ScanApp**）
+- 应用名：`res/values/strings.xml` → `app_name`（当前为 **扫一扫**）
 - 启动图标：`android:icon` / `android:roundIcon` 指向 `@mipmap/ic_launcher` 系列
 - `MainActivity` 同步声明了 `label` 与 `icon`，保证启动器条目显示正常
 
